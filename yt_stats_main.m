@@ -1,16 +1,18 @@
 %% YouTube data takeout statistics 2020-01-27
 
-clear all; clc
+clear all; clc; close all;
 %% parameter
 DIR_LIST            = { 'TakeoutPhilipp_20200127';
-                        'TakeoutMarc_20200201'}
-CURRENT_DIR         = 2;
-BUF_LEN_VIDEO       = 30;
-END_DATE            = '' % yyyy-mm-dd or '' for None
-MAX_CHANNEL_COUNT   = 30
-SORT_BY             = 'NUMBER'
+                        'TakeoutMarc_20200201';
+                        'Takeout'}
+CURRENT_DIR         = 3
+BUF_LEN_VIDEO       = 30
+END_DATE            = '2014-11-01'        % yyyy-mm-dd or '' for None
+MAX_CHANNEL_COUNT   = 10
+SORT_BY             = 'NUMBER'  % NUMBER or NAME
 
 %% import
+tic
 videohistoryFile = '\YouTube\Verlauf\Wiedergabeverlauf.json';
 searchhistoryFile = '\YouTube\Verlauf\Suchverlauf.json';
 files = {videohistoryFile, searchhistoryFile};
@@ -40,7 +42,7 @@ if ~strcmp(END_DATE,'')
     disp('custom end date!')
 end
 
-disp('getting statistics of videos..')
+disp('getting daily statistics of videos..')
 % initial values
 datatable_buffer = {};
 
@@ -58,26 +60,23 @@ n = 1;
 date_dp_S = time_from_datapoint(search_data(n));
 date = start_date;
 while end_date < date && date <= start_date
-    videoEntryList = {};
-    searchEntryList = {};
+    i = 1;
+    videoEntryList = struct('videoEntries', {},'channels', {}); 
     while date_dp_V == date && m < number_of_entriesV
         datapointV = video_data{m,1};
         try
-            datapointVsubt = datapointV.subtitles;
-            % if ~any(strcmp(channel_data, datapointVsubt.name))
-            channel_data = [channel_data; datapointVsubt.name];
-
+                videoEntryList = [videoEntryList; struct('videoEntries', {datapointV.title},'channels', {datapointV.subtitles.name})]; 
         catch ME
-            channel_data = [channel_data; 'video_removed'];
+                videoEntryList = [videoEntryList; struct('videoEntries', {'video_removed'},'channels', {'Channel_not_available'})]; 
         end
+        
         date_dp_V = time_from_datapoint(datapointV);
-        
-        % fetch video entries
-        videoEntryList = [videoEntryList; datapointV.title];
-        
-        m = m+1;
+        m = m+1; i = i+1;
     end
     
+    channel_data = [channel_data; {videoEntryList.channels}'];
+    
+    searchEntryList = {};
     while date_dp_S == date && n < number_of_entriesS
         datapointS = search_data(n);
         date_dp_S = time_from_datapoint(datapointS);
@@ -90,13 +89,13 @@ while end_date < date && date <= start_date
     % get stats of current day
     nVEntries = length(videoEntryList);
     nSEntries = length(searchEntryList);
-    
+
     % moving average of video count per day
     nVEntries_buffer = [nVEntries_buffer, nVEntries];
     if length(nVEntries_buffer) > BUF_LEN_VIDEO
         nVEntries_buffer(1) = [];
     end
-    moving_avergage_nVEntries = sum(nVEntries_buffer)/BUF_LEN_VIDEO;
+    moving_avergage_nVEntries = sum(nVEntries_buffer)/length(nVEntries_buffer);
     
     % build table buffer
     newRow = {  date, ...
@@ -106,10 +105,29 @@ while end_date < date && date <= start_date
     
     date = date-1; % previous date
 end
-%% postprocessing 
-disp('postprocessing data..')
 data = [data; datatable_buffer(2:end, :)];
+size_data = size(data);
 
+%% dataset stats
+disp('getting dataset statistics..')
+
+keywords = {};
+titles = {};
+for j = 2:size_data(1)
+     title_buffer = data.videoEntries{j, 1};
+     for k = 1:length(title_buffer)
+         % split words of video title in cell array
+%          words_in_title = split(, ' ');
+         titles = [titles; lower(title_buffer(k,1).videoEntries)];
+%          keywords = [keywords; lower(words_in_title(1:end-1, 1))];
+     end
+end
+
+%% postprocessing 
+disp('postprocessing history data..')
+
+% daily data postprocessing
+% #########################################################################
 channel_data_ctg = categorical(channel_data);
 unique_channels = categories(channel_data_ctg);
 unique_channels_fltd = {};
@@ -118,7 +136,7 @@ channel_count = countcats(channel_data_ctg);
 channel_count_fltd = [];
 
 for i = 1:length(unique_channels)
-    if strcmp(unique_channels(i,1), 'video_removed')
+    if strcmp(unique_channels(i,1), 'Channel_not_available')
         continue
     end
     if channel_count(i,1) > MAX_CHANNEL_COUNT
@@ -134,37 +152,62 @@ elseif strcmp(SORT_BY, 'NUMBER')
     disp('sorting by number..')
     [channel_count_plot, sort_idx] = sort(channel_count_fltd);
     unique_channels_plot = unique_channels_fltd(sort_idx);
-% else
-%     unique_channels_plot = unique_channels_fltd;
-%     channel_count_plot = channel_count_fltd;
 end
 
-%% visulization & stats
-disp('visualizing data..')
-clf
-subplot(2, 3, [1 2]);
+% dataset postprocessing
+% #########################################################################
+disp('postprocessing word cloud data..')
+keywordsDoc = tokenizedDocument(titles);
 
+% clean tokenzied data
+keywordsDoc = removeStopWords(keywordsDoc);
+keywordsDoc = erasePunctuation(keywordsDoc, 'TokenTypes', {'punctuation','other', 'digits', 'letters'});
+keywordsDoc = removeShortWords(keywordsDoc, 2);
+keywords_filtered = removeWords(keywordsDoc, ["angesehen", "videoremoved", "video", "official", "feat", "ft", "prod", "ep"]);
+
+
+%% visulization & stats
+disp('visualizing word cloud data..')
+figure('Name','Title Analysis')
+wordcloud(keywords_filtered);
+
+disp('visualizing history data..')
+figure('Name','Video History Analysis')
+subplot(2, 3, [1 2]);
 hold on
 bar(data.date, data.number_of_videoEntries)
 plot(data.date, data.MA_nVEntries)
 hold off
 
-title('Watched YouTube videos per day')
+title('YouTube-Videos per day')
 legend('videos per day', sprintf('moving average (%d days)', BUF_LEN_VIDEO))
 xlabel('date'); ylabel('number of YouTube videos per day') 
 
 subplot(2, 3, [4 5])
 bar(data.date, data.number_of_searchEntries)
-title('YouTube-Searched per day')
+title('YouTube-Searches per day')
 xlabel('date'); ylabel('number of YouTube-Searches per day')
 
 subplot(2, 3, [3 6])
-bax = barh(categorical(unique_channels_plot), channel_count_plot);
-xlabel('number of videos'); ylabel('channel name')
-set(gca, 'FontSize', 5)
-% set(gca, 'LabelFontSizeMultiplier', 0.5)
-title('YouTube Channels', 'FontSize', 'default')
+bar_labels = categorical(unique_channels_plot, unique_channels_plot);
 
+hold on
+% barh(bar_labels, channel_count_plot);
+for i = 1:length(channel_count_plot)
+    bax=barh(bar_labels(i),channel_count_plot(i));
+    if channel_count_plot(i) > 0.9*max(channel_count_plot)
+        set(bax,'FaceColor','k');
+    else
+        set(bax,'FaceColor','b');
+    end
+end
+hold off
+
+set(gca, 'FontSize', 5)
+xlabel('number of videos'); ylabel('channel name')
+title(sprintf('YouTube Channels (min. %d)', BUF_LEN_VIDEO), 'FontSize', 'default')
+
+toc
 % backup_fig(gcf, 'YTPerDayAnalysis', mfilename )
 
 %% functions
