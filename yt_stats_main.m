@@ -10,52 +10,57 @@ videohistoryFile = '\YouTube\Verlauf\Wiedergabeverlauf.json';
 searchhistoryFile = '\YouTube\Verlauf\Suchverlauf.json';
 files = {videohistoryFile, searchhistoryFile};
 
-disp('lodaing files..')
+disp('loading files..')
 video_data  = get_from_json([directory{current_dir},videohistoryFile]);
 search_data = get_from_json([directory{current_dir},searchhistoryFile]);
 
 % data table blueprint
-cols = {'date', 'videoEntries', 'searchEntries', 'number_of_videoEntries'};
+cols = {'date', 'videoEntries', 'number_of_videoEntries', 'MA_nVEntries', 'searchEntries', 'number_of_searchEntries'};
 data = table(   'Size', [1, length(cols)], ...
                 'VariableNames', cols, ...
-                'VariableTypes', ["datetime", "cell", "cell", "uint64"] );
+                'VariableTypes', ["datetime", "cell", "uint64", "double", "cell", "uint64"] );
 
-end_date = time_from_datapoint(video_data{1, 1});
-start_date = time_from_datapoint(video_data{end, 1});
+newest_entry = time_from_datapoint(video_data{1, 1});
+oldest_entry = time_from_datapoint(video_data{end, 1});
 
-if time_from_datapoint(search_data(1)) > end_date
-    end_date = time_from_datapoint(search_data(1));
+if time_from_datapoint(search_data(1)) > newest_entry
+    newest_entry = time_from_datapoint(search_data(1));
 end
-if time_from_datapoint(search_data(end)) < start_date
-    start_date = time_from_datapoint(search_data(end));
+if time_from_datapoint(search_data(end)) < oldest_entry
+    oldest_entry = time_from_datapoint(search_data(end));
 end 
 
 % initial values
-disp('getting statistics..')
-datestr_buf = end_date;
+disp('getting statistics of videos..')
+datestr_buf = newest_entry;
 videoEntryList = {};
 searchEntryList = {};
-[number_of_entries, ~] = size(video_data);
-date = end_date;
-date_buf = [];
-idx = 1;
-while start_date <= date && date <= end_date
+nSEntries = 0;
+nVEntries_buffer = [];
+nVEntries_buffer_len = 30;
+[number_of_entriesV, ~] = size(video_data);
+for i = 1:number_of_entriesV
+    % extract datapoint
     newRow = {};
-    
-    % extract datapoints from both datasets
-    datapointV = video_data{idx,1};
-    datapointS = search_data(idx);
-    
-    [datestrV, timestrV] = time_from_datapoint(datapointV);
-    [datestrS, timestrS] = time_from_datapoint(datapointS);
-    
-    videoEntryList = [videoEntryList; datapointV.title];
-    searchEntryList = [searchEntryList; datapointS.title];
-    
+    datapointV = video_data{i,1};
+    [datestr, timestr] = time_from_datapoint(datapointV);
+
     % compare with last point
-    if all()
-        nEntries = length(videoEntryList);
-        newRow = {date, videoEntryList, searchEntryList, nEntries};
+    videoEntryList = [videoEntryList; datapointV.title];
+    if ~strcmp(datestr, datestr_buf)
+        date = datetime(datestr, 'InputFormat', 'yyyy-MM-dd');
+
+        nVEntries = length(videoEntryList);
+        
+        % moving average of video count per day
+        nVEntries_buffer = [nVEntries_buffer, nVEntries];
+        if length(nVEntries_buffer) > nVEntries_buffer_len
+            nVEntries_buffer(1) = [];
+        end
+        moving_avergage_nVEntries = sum(nVEntries_buffer)/nVEntries_buffer_len;
+        
+        % build new table row as cell
+        newRow = {date, videoEntryList, nVEntries, moving_avergage_nVEntries, searchEntryList, nSEntries};
 
         % write to data table
         data = [data; newRow];
@@ -64,19 +69,45 @@ while start_date <= date && date <= end_date
     datestr_buf = datestr;
 end
 
+disp('adding search statistics..')
 % insert search data in data table
+datetime_buf = data.date(1);
 [rows, ~] = size(data);
-for i = 1:rows
-    [datestr, timestr] = time_from_datapoint(datapoint);
+j = 1;
+for i = 2:rows %first row naT
+    searchEntryList = {};
+    datapointS = search_data(j);
+    [datestrS, timestrS] = time_from_datapoint(datapointS);
+    while data.date(i) == datetime(datestrS, 'InputFormat', 'yyyy-MM-dd')
+        datapointS = search_data(j);
+        [datestrS, timestrS] = time_from_datapoint(datapointS);
+
+        searchEntryList = [searchEntryList; datapointS.title];
+        j = j+1;
+    end
+    data.searchEntries{i} = searchEntryList;
+    data.number_of_searchEntries(i) = length(searchEntryList);
 end
+disp('statistics done..')
 %% visulization & stats
 figure('name', 'Videos Over Years')
-subplot(1, 2, [1 2])
-bar(data.date, data.number_of_videoEntries)
-xlabel('date')
-ylabel('number of YouTube videos per day') 
+subplot(2, 2, [1 2]);
 
-% backup_fig(gcf, 'VideosPerDay', mfilename )
+hold on
+bar(data.date, data.number_of_videoEntries)
+plot(data.date, data.MA_nVEntries)
+hold off
+
+title('Watched YouTube videos per day')
+legend('videos per day', sprintf('moving average (%d days)', nVEntries_buffer_len))
+xlabel('date'); ylabel('number of YouTube videos per day') 
+
+subplot(2, 2, [3 4])
+bar(data.date, data.number_of_searchEntries)
+title('YouTube-Searched per day')
+xlabel('date'); ylabel('number of YouTube-Searches per day') 
+
+% backup_fig(gcf, 'YTPerDayAnalysis', mfilename )
 
 %% functions
 function [date, time] = time_from_datapoint(datapoint)
