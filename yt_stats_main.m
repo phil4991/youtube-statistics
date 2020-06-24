@@ -2,9 +2,10 @@
 
 clear all; clc; close all;
 %% parameter
-DIR_LIST            = { 'TakeoutPhilipp_20200127';
-                        'TakeoutMarc_20200201';
-                        'Takeout'}
+DIR_LIST            = { 'data\TakeoutPhilipp_20200127\YouTube';
+                        'data\TakeoutPhilipp_20200623\YouTube und YouTube Music';
+                        'data\TakeoutMarc_20200201\YouTube';
+                        'data\Takeout\YouTube'}
 CURRENT_DIR         = 3
 BUF_LEN_VIDEO       = 30
 END_DATE            = '2014-11-01'        % yyyy-mm-dd or '' for None
@@ -13,8 +14,8 @@ SORT_BY             = 'NUMBER'  % NUMBER or NAME
 
 %% import
 tic
-videohistoryFile = '\YouTube\Verlauf\Wiedergabeverlauf.json';
-searchhistoryFile = '\YouTube\Verlauf\Suchverlauf.json';
+videohistoryFile = '\Verlauf\Wiedergabeverlauf.json';
+searchhistoryFile = '\Verlauf\Suchverlauf.json';
 files = {videohistoryFile, searchhistoryFile};
 
 disp('loading files..')
@@ -27,14 +28,14 @@ data = table(   'Size', [1, length(cols)], ...
                 'VariableNames', cols, ...
                 'VariableTypes', ["datetime", "cell", "uint64", "double", "cell", "uint64"] );
 
-start_date = time_from_datapoint(video_data{1, 1});
+start_date = time_from_datapoint(video_data{1, 1}); 
 end_date = time_from_datapoint(video_data{end, 1});
 
-if time_from_datapoint(search_data(1)) > start_date
-    start_date = time_from_datapoint(search_data(1));
+if time_from_datapoint(search_data{1}) > start_date
+    start_date = time_from_datapoint(search_data{1});
 end
-if time_from_datapoint(search_data(end)) < end_date
-    end_date = time_from_datapoint(search_data(end));
+if time_from_datapoint(search_data{end}) < end_date
+    end_date = time_from_datapoint(search_data{end});
 end
 
 if ~strcmp(END_DATE,'')
@@ -57,7 +58,7 @@ nVEntries_buffer = [];
 m = 1;
 date_dp_V = time_from_datapoint(video_data{m,1});
 n = 1;
-date_dp_S = time_from_datapoint(search_data(n));
+date_dp_S = time_from_datapoint(search_data{n,1});
 date = start_date;
 while end_date < date && date <= start_date
     i = 1;
@@ -78,7 +79,7 @@ while end_date < date && date <= start_date
     
     searchEntryList = {};
     while date_dp_S == date && n < number_of_entriesS
-        datapointS = search_data(n);
+        datapointS = search_data{n};
         date_dp_S = time_from_datapoint(datapointS);
         
         % fetch search entries
@@ -214,6 +215,7 @@ toc
 function [date, date_time] = time_from_datapoint(datapoint)
     % extracts date and time from datestring
     % returns date and time as string
+
     time_str = datapoint.time;
     time_arr = split(time_str, ["T", "."]);
     
@@ -233,5 +235,8 @@ function [data, number_of_entries] = get_from_json(fpath)
     data = jsondecode(json_string);
     fclose(fid);
     
+    if ~iscell(data)
+        data = num2cell(data);
+    end
     number_of_entries = size(data);
 end
